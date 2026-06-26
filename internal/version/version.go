@@ -19,11 +19,12 @@ var Changelog = []Release{
 	{
 		Version: "1.5.1",
 		Date:    "2026-06-26",
-		Title:   "Top Tracks Fix & Dynamic Changelog",
+		Title:   "Top Tracks Fix, Dynamic Changelog & Banner Quicklink",
 		Changes: []string{
 			"Fixed repeated plays of the same song not incrementing play count (now detects track restart via timestamps)",
 			"Fixed top tracks list only showing tracks with 2+ plays — now includes all played tracks",
 			"New dynamic changelog API: `GET /v1/changelog` (public) and `POST /v1/changelog` (auth required) — docs page updates live without redeploying",
+			"New banner quicklink proxy at `/banner/{id}.{ext}` — works like the avatar quicklink but for user banners",
 		},
 	},
 	{

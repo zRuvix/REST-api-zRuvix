@@ -56,7 +56,7 @@ func handleIndex(w http.ResponseWriter, _ *http.Request) {
 }
 
 func handleDiscordRedirect(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "https://discord.gg/WScAm7vNGF", http.StatusFound)
+	http.Redirect(w, r, "https://discord.gg/rkJRchDy92", http.StatusFound)
 }
 
 func handleMetrics(w http.ResponseWriter, r *http.Request) {
