@@ -40,6 +40,7 @@ func v1Router() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/docs", handleDocs)
 	r.Get("/version", handleVersion)
+	r.Get("/health", handleHealth)
 	r.Get("/changelog", handleGetChangelog)
 	r.Post("/changelog", handlePostChangelog)
 	r.Mount("/users", usersRouter())

@@ -53,6 +53,12 @@ var OnMessageCreate func(data map[string]any)
 
 var errInvalidSession = errors.New("invalid session")
 
+// connected tracks whether the gateway is currently connected.
+var connected atomic.Bool
+
+// Connected returns true if the gateway WebSocket is connected.
+func Connected() bool { return connected.Load() }
+
 // session carries resume state across reconnects.
 type session struct {
 	token     string
@@ -132,7 +138,9 @@ func connectAndServe(s *session) error {
 	ackCh := make(chan struct{}, 1)
 	stopHB := make(chan struct{})
 	hbStarted := false
+	connected.Store(true)
 	defer func() {
+		connected.Store(false)
 		if hbStarted {
 			close(stopHB)
 		}
