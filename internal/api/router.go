@@ -27,6 +27,10 @@ func Router() http.Handler {
 	r.Get("/{file}", func(w http.ResponseWriter, req *http.Request) {
 		handleQuicklink(w, req, chi.URLParam(req, "file"))
 	})
+	// Quicklink banner proxy for /banner/{id}.{ext}.
+	r.Get("/banner/{file}", func(w http.ResponseWriter, req *http.Request) {
+		handleBannerQuicklink(w, req, chi.URLParam(req, "file"))
+	})
 	r.NotFound(func(w http.ResponseWriter, _ *http.Request) { notFound(w) })
 
 	return r

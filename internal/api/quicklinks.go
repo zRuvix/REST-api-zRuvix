@@ -86,3 +86,63 @@ func fetchAvatar(id, avatar, discriminator, fileType string, avatarNil bool) (*h
 	}
 	return http.Get(url)
 }
+
+// handleBannerQuicklink proxies a Discord banner for /banner/{id}.{ext}.
+func handleBannerQuicklink(w http.ResponseWriter, r *http.Request, file string) {
+	idx := strings.LastIndex(file, ".")
+	if idx < 0 {
+		notFound(w)
+		return
+	}
+	userID := file[:idx]
+	fileType := file[idx+1:]
+
+	if !supportedQuicktypes[fileType] {
+		notFound(w)
+		return
+	}
+
+	p, err := presence.GetPrettyPresence(userID)
+	if err != nil {
+		respondError(w, err.HTTPCode, err.Code, err.Message)
+		return
+	}
+
+	if p.BannerURL == nil || *p.BannerURL == "" {
+		respondError(w, http.StatusNotFound, "no_banner", "User has no banner set")
+		return
+	}
+
+	// Use the banner hash from the presence data
+	banner := ""
+	if p.Banner != nil {
+		banner = *p.Banner
+	}
+	if banner == "" {
+		notFound(w)
+		return
+	}
+	ft := fileType
+	if !strings.HasPrefix(banner, "a_") && ft == "gif" {
+		ft = "png"
+	}
+	url := fmt.Sprintf("%s/banners/%s/%s.%s?size=1024", discordCDN, userID, banner, ft)
+
+	resp, ferr := http.Get(url)
+	if ferr != nil || resp == nil {
+		notFound(w)
+		return
+	}
+	defer resp.Body.Close()
+
+	for k, vals := range resp.Header {
+		if strings.EqualFold(k, "Content-Length") {
+			continue
+		}
+		for _, v := range vals {
+			w.Header().Add(k, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
