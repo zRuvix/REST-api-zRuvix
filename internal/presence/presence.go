@@ -32,8 +32,9 @@ type Presence struct {
 	bannerTried bool
 
 	// change markers for history recording
-	lastStatus  string
-	lastTrackID string
+	lastStatus     string
+	lastTrackID    string
+	lastTrackStart int64
 }
 
 // Registry is the concurrent set of monitored presences, replacing the Elixir

@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"zruvix/internal/changelog"
 	"zruvix/internal/config"
 	"zruvix/internal/version"
 )
@@ -15,9 +16,11 @@ func handleDocs(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleVersion returns the current version and full changelog as JSON.
+// Dynamic entries (from POST /v1/changelog) appear first, followed by static.
 func handleVersion(w http.ResponseWriter, _ *http.Request) {
 	respondOK(w, map[string]any{
-		"version":   version.Version,
-		"changelog": version.Changelog,
+		"version":           version.Version,
+		"changelog":         version.Changelog,
+		"dynamic_changelog": changelog.List(),
 	})
 }

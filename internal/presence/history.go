@@ -14,7 +14,7 @@ const historyCap = 100
 
 // mostPlayedMinPlays is the minimum number of plays a track needs before it
 // qualifies for the "most played" list. Set to 1 to include one-time plays.
-const mostPlayedMinPlays = 2
+const mostPlayedMinPlays = 1
 
 func statusKey(uid string) string   { return "zruvix_hist_status:" + uid }
 func tracksKey(uid string) string   { return "zruvix_hist_tracks:" + uid }
@@ -30,6 +30,19 @@ func playCountsKey(uid string) string { return "zruvix_play_counts:" + uid }
 // so the most-played list can be enriched with song details (incl. album art).
 func trackMetaKey(uid string) string { return "zruvix_track_meta:" + uid }
 
+// trackStart extracts the start timestamp from a NowPlaying's Timestamps map.
+func trackStart(np *NowPlaying) int64 {
+	if np == nil || np.Timestamps == nil {
+		return 0
+	}
+	if m, ok := np.Timestamps.(map[string]any); ok {
+		if s, ok := toInt64(m["start"]); ok {
+			return s
+		}
+	}
+	return 0
+}
+
 // recordHistory diffs the freshly-built presence against the last seen state and
 // appends status-change and track-change events to Redis. It also refreshes the
 // last_seen timestamp and the daily track counter.
@@ -37,14 +50,17 @@ func recordHistory(p *Presence, pretty *PrettyPresence) {
 	p.mu.Lock()
 	newStatus := pretty.DiscordStatus
 	newTrack := ""
+	var newStart int64
 	if pretty.NowPlaying != nil && pretty.NowPlaying.TrackID != nil {
 		newTrack = *pretty.NowPlaying.TrackID
+		newStart = trackStart(pretty.NowPlaying)
 	}
 	statusChanged := newStatus != p.lastStatus
-	trackChanged := newTrack != "" && newTrack != p.lastTrackID
+	trackChanged := newTrack != "" && (newTrack != p.lastTrackID || (newStart != 0 && newStart != p.lastTrackStart))
 	p.lastStatus = newStatus
 	if newTrack != "" {
 		p.lastTrackID = newTrack
+		p.lastTrackStart = newStart
 	}
 	p.mu.Unlock()
 
@@ -156,6 +172,7 @@ func PurgeHistory(uid string) {
 		p.mu.Lock()
 		p.lastStatus = ""
 		p.lastTrackID = ""
+		p.lastTrackStart = 0
 		p.mu.Unlock()
 	}
 }
