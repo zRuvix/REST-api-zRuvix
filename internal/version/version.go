@@ -4,7 +4,7 @@
 package version
 
 // Version is the current zRuvix release. Use semantic versioning.
-const Version = "1.6.0"
+const Version = "1.6.1"
 
 // Release is one entry in the changelog.
 type Release struct {
@@ -16,6 +16,16 @@ type Release struct {
 
 // Changelog lists releases newest-first.
 var Changelog = []Release{
+	{
+		Version: "1.6.1",
+		Date:    "2026-06-27",
+		Title:   "Listening History Duplicate Fix",
+		Changes: []string{
+			"Fixed the same song being recorded multiple times in listening history (e.g. duplicate \"0m ago\" entries) when a user shared several mutual servers with the bot",
+			"Fixed play counts and the daily track counter being inflated by those duplicates — top-tracks now reflects real play counts",
+			"The same track is now only counted again on a genuine replay, ignoring the small start-time jitter Discord sends across per-server presence updates",
+		},
+	},
 	{
 		Version: "1.6.0",
 		Date:    "2026-06-26",

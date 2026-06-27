@@ -16,6 +16,46 @@ const historyCap = 100
 // qualifies for the "most played" list. Set to 1 to include one-time plays.
 const mostPlayedMinPlays = 1
 
+// sameTrackReplayMinGapMs is how far a track's start timestamp must move before
+// the *same* track id is treated as a genuine replay (a new play) rather than
+// the currently-playing song being re-reported. Discord sends one
+// PRESENCE_UPDATE per mutual guild and recomputes timestamps.start (= now -
+// position) on each event, so the value jitters by up to a few seconds while a
+// single song plays continuously. Without this guard every jittered re-report
+// was stored as another play, producing duplicate history entries ("0m ago"
+// repeated) and inflated play counts. A real replay restarts the track, moving
+// start by far more than this threshold.
+const sameTrackReplayMinGapMs = 10_000
+
+// absInt64 returns the absolute value of n.
+func absInt64(n int64) int64 {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+// isNewPlay decides whether an incoming track should be recorded as a *new*
+// play, given the previously recorded track id and start timestamp.
+//
+//   - No track playing (newTrack == "") is never a new play.
+//   - A different track id is always a new play.
+//   - The same track id is only a replay when both starts are known and the new
+//     start moved more than sameTrackReplayMinGapMs from the last one (a genuine
+//     restart). Smaller moves are timestamp jitter from the same song being
+//     re-reported — once per mutual guild — and must be ignored, otherwise one
+//     play turns into duplicate history entries and inflated play counts.
+func isNewPlay(newTrack, lastTrackID string, newStart, lastTrackStart int64) bool {
+	if newTrack == "" {
+		return false
+	}
+	if newTrack != lastTrackID {
+		return true
+	}
+	return newStart != 0 && lastTrackStart != 0 &&
+		absInt64(newStart-lastTrackStart) > sameTrackReplayMinGapMs
+}
+
 func statusKey(uid string) string   { return "zruvix_hist_status:" + uid }
 func tracksKey(uid string) string   { return "zruvix_hist_tracks:" + uid }
 func lastSeenKey(uid string) string { return "zruvix_last_seen:" + uid }
@@ -56,7 +96,7 @@ func recordHistory(p *Presence, pretty *PrettyPresence) {
 		newStart = trackStart(pretty.NowPlaying)
 	}
 	statusChanged := newStatus != p.lastStatus
-	trackChanged := newTrack != "" && (newTrack != p.lastTrackID || (newStart != 0 && newStart != p.lastTrackStart))
+	trackChanged := isNewPlay(newTrack, p.lastTrackID, newStart, p.lastTrackStart)
 	p.lastStatus = newStatus
 	if newTrack != "" {
 		p.lastTrackID = newTrack
