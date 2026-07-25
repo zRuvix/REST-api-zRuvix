@@ -4,7 +4,7 @@
 package version
 
 // Version is the current zRuvix release. Use semantic versioning.
-const Version = "1.6.1"
+const Version = "1.7.0"
 
 // Release is one entry in the changelog.
 type Release struct {
@@ -16,6 +16,17 @@ type Release struct {
 
 // Changelog lists releases newest-first.
 var Changelog = []Release{
+	{
+		Version: "1.7.0",
+		Date:    "2026-07-25",
+		Title:   "External Now Playing (Pear Desktop)",
+		Changes: []string{
+			"New PUT/DELETE /v1/users/@me/now-playing and /v1/users/:id/now-playing for non-Discord music reporters (API key required)",
+			"External reports fill youtube_music / now_playing when Discord has no Spotify session — works while Discord is offline",
+			"Reports expire after 5 minutes without a refresh; history and top-tracks still record track changes",
+			"Multi-node sync via zruvix:global_sync for external_music diffs",
+		},
+	},
 	{
 		Version: "1.6.1",
 		Date:    "2026-06-27",

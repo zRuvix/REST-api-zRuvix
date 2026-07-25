@@ -17,11 +17,16 @@ import (
 func usersRouter() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/@me", handleMe)
+	// External now-playing ingest (Pear Desktop, etc.) — API key required.
+	r.Put("/@me/now-playing", handlePutMeNowPlaying)
+	r.Delete("/@me/now-playing", handleDeleteMeNowPlaying)
 	r.Get("/{id}", handleGetUser)
 	r.Get("/{id}/history", handleHistory)
 	r.Get("/{id}/stats", handleStats)
 	r.Get("/{id}/top-tracks", handleTopTracks)
 	r.Get("/{id}/card.svg", handleCard)
+	r.Put("/{id}/now-playing", handlePutNowPlaying)
+	r.Delete("/{id}/now-playing", handleDeleteNowPlaying)
 	r.Patch("/{id}/kv", handlePatchKV)
 	r.Put("/{id}/kv/{field}", handlePutKV)
 	r.Delete("/{id}/kv/{field}", handleDeleteKV)
@@ -147,4 +152,86 @@ func handleDeleteKV(w http.ResponseWriter, r *http.Request) {
 func validateResourceAccess(r *http.Request, userID string) bool {
 	key := authorizationHeader(r)
 	return redis.Get("api_key:"+key) == userID
+}
+
+// resolveAPIKeyUser returns the Discord user id bound to the Authorization key.
+func resolveAPIKeyUser(r *http.Request) string {
+	key := authorizationHeader(r)
+	if key == "" {
+		return ""
+	}
+	return redis.Get("api_key:" + key)
+}
+
+// handlePutMeNowPlaying sets external now-playing for the API-key owner.
+func handlePutMeNowPlaying(w http.ResponseWriter, r *http.Request) {
+	userID := resolveAPIKeyUser(r)
+	if userID == "" {
+		noPermission(w)
+		return
+	}
+	putNowPlaying(w, r, userID)
+}
+
+// handleDeleteMeNowPlaying clears external now-playing for the API-key owner.
+func handleDeleteMeNowPlaying(w http.ResponseWriter, r *http.Request) {
+	userID := resolveAPIKeyUser(r)
+	if userID == "" {
+		noPermission(w)
+		return
+	}
+	deleteNowPlaying(w, userID)
+}
+
+// handlePutNowPlaying sets external now-playing for :id (must own the API key).
+func handlePutNowPlaying(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "id")
+	if !validateResourceAccess(r, userID) {
+		noPermission(w)
+		return
+	}
+	putNowPlaying(w, r, userID)
+}
+
+// handleDeleteNowPlaying clears external now-playing for :id.
+func handleDeleteNowPlaying(w http.ResponseWriter, r *http.Request) {
+	userID := chi.URLParam(r, "id")
+	if !validateResourceAccess(r, userID) {
+		noPermission(w)
+		return
+	}
+	deleteNowPlaying(w, userID)
+}
+
+func putNowPlaying(w http.ResponseWriter, r *http.Request, userID string) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_body", "could not read body")
+		return
+	}
+	var in presence.ExternalMusicInput
+	if len(body) == 0 {
+		respondError(w, http.StatusBadRequest, "invalid_now_playing", "JSON body required")
+		return
+	}
+	if err := json.Unmarshal(body, &in); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid_now_playing", "body must be a JSON object")
+		return
+	}
+
+	pretty, perr := presence.SetExternalMusic(userID, in)
+	if perr != nil {
+		respondError(w, perr.HTTPCode, perr.Code, perr.Message)
+		return
+	}
+	respondOK(w, pretty)
+}
+
+func deleteNowPlaying(w http.ResponseWriter, userID string) {
+	pretty, perr := presence.ClearExternalMusic(userID)
+	if perr != nil {
+		respondError(w, perr.HTTPCode, perr.Code, perr.Message)
+		return
+	}
+	respondOK(w, pretty)
 }

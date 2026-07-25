@@ -83,6 +83,15 @@ func Set(key, value string) {
 	client.Set(ctx, key, value, 0)
 }
 
+// SetEX stores value at key with a TTL. A zero or negative ttl stores without expiry.
+func SetEX(key, value string, ttl time.Duration) {
+	if ttl <= 0 {
+		client.Set(ctx, key, value, 0)
+		return
+	}
+	client.Set(ctx, key, value, ttl)
+}
+
 // Del removes key.
 func Del(key string) {
 	client.Del(ctx, key)

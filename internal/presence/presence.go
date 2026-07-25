@@ -23,7 +23,10 @@ type Presence struct {
 	DiscordUser     map[string]any
 	DiscordPresence map[string]any
 	KV              map[string]string
-	subscribers     map[Subscriber]struct{}
+	// ExternalMusic is a non-Discord now-playing report (e.g. Pear Desktop).
+	// Merged into PrettyPresence when Discord has no Spotify session.
+	ExternalMusic *ExternalMusic
+	subscribers   map[Subscriber]struct{}
 
 	// banner / accent_color are not in gateway payloads; they are fetched
 	// lazily from the REST API on first read and cached here.
@@ -104,9 +107,11 @@ func (r *Registry) LookupOrStart(id string, discordPresence, discordUser map[str
 	r.m[id] = p
 	r.mu.Unlock()
 
-	// init: load KV, build (and cache) pretty presence, notify global subscribers.
+	// init: load KV + any live external now-playing, build pretty presence,
+	// notify global subscribers.
 	p.mu.Lock()
 	p.KV = redis.HGetAll("zruvix_kv:" + id)
+	p.ExternalMusic = loadExternalMusic(id)
 	p.mu.Unlock()
 
 	pretty := p.BuildPretty()
@@ -165,12 +170,16 @@ func (p *Presence) applySync(diff map[string]any) {
 	if v, ok := diff["kv"]; ok {
 		p.KV = asKV(v)
 	}
+	if _, ok := diff["external_music"]; ok {
+		p.ExternalMusic = parseExternalMusic(diff["external_music"])
+	}
 	duser, dpres, kv := p.DiscordUser, p.DiscordPresence, p.KV
 	banner, accent := p.banner, p.accentColor
+	ext := p.ExternalMusic
 	subs := p.subscriberList()
 	p.mu.Unlock()
 
-	pretty := buildPretty(p.UserID, duser, dpres, kv, banner, accent)
+	pretty := buildPretty(p.UserID, duser, dpres, kv, banner, accent, ext)
 	recordHistory(p, &pretty)
 	for _, s := range subs {
 		s.SendEvent(SocketMessage{Op: 0, T: "PRESENCE_UPDATE", D: pretty})
@@ -182,13 +191,36 @@ func (p *Presence) BuildPretty() PrettyPresence {
 	p.mu.RLock()
 	duser, dpres, kv := p.DiscordUser, p.DiscordPresence, p.KV
 	banner, accent := p.banner, p.accentColor
+	ext := p.ExternalMusic
+	// Drop expired external reports so GET responses stay clean.
+	if ext != nil && !ext.Live() {
+		ext = nil
+	}
 	p.mu.RUnlock()
-	return buildPretty(p.UserID, duser, dpres, kv, banner, accent)
+
+	if ext == nil {
+		// Memory empty/expired — try Redis (survives process restart within TTL).
+		if loaded := loadExternalMusic(p.UserID); loaded != nil {
+			p.mu.Lock()
+			p.ExternalMusic = loaded
+			ext = loaded
+			p.mu.Unlock()
+		} else if p.ExternalMusic != nil {
+			// Clear stale pointer without a redis hit on every call after expiry.
+			p.mu.Lock()
+			if p.ExternalMusic != nil && !p.ExternalMusic.Live() {
+				p.ExternalMusic = nil
+			}
+			p.mu.Unlock()
+		}
+	}
+
+	return buildPretty(p.UserID, duser, dpres, kv, banner, accent, ext)
 }
 
 // buildPretty mirrors zRuvix.Presence.build_pretty_presence and stores the
 // result in the cache.
-func buildPretty(userID string, discordUser, discordPresence map[string]any, kv map[string]string, banner *string, accentColor *int) PrettyPresence {
+func buildPretty(userID string, discordUser, discordPresence map[string]any, kv map[string]string, banner *string, accentColor *int, external *ExternalMusic) PrettyPresence {
 	if kv == nil {
 		kv = map[string]string{}
 	}
@@ -245,6 +277,9 @@ func buildPretty(userID string, discordUser, discordPresence map[string]any, kv 
 		}
 	}
 
+	// Overlay Pear Desktop / external reporters when Discord has no Spotify.
+	mergeExternalMusic(&pretty, external)
+
 	cacheKey := userID
 	if discordUser != nil {
 		if id, ok := discordUser["id"].(string); ok {
@@ -284,6 +319,17 @@ func GetPrettyPresence(userID string) (*PrettyPresence, *Error) {
 	// Kick off a one-time banner/accent enrichment (async; the current
 	// response may not include it, the next read will).
 	p.ensureBanner()
+
+	// If an external report just expired, rebuild so clients do not keep a
+	// stale youtube_music / now_playing from the cache.
+	p.mu.RLock()
+	extStale := p.ExternalMusic != nil && !p.ExternalMusic.Live()
+	p.mu.RUnlock()
+	if extStale {
+		pretty := p.BuildPretty()
+		return &pretty, nil
+	}
+
 	if c, ok := cacheGet(userID); ok {
 		return &c, nil
 	}
@@ -508,10 +554,11 @@ func (p *Presence) ensureBanner() {
 		p.banner = banner
 		p.accentColor = accent
 		duser, dpres, kv := p.DiscordUser, p.DiscordPresence, p.KV
+		ext := p.ExternalMusic
 		subs := p.subscriberList()
 		p.mu.Unlock()
 
-		pretty := buildPretty(p.UserID, duser, dpres, kv, banner, accent)
+		pretty := buildPretty(p.UserID, duser, dpres, kv, banner, accent, ext)
 		for _, s := range subs {
 			s.SendEvent(SocketMessage{Op: 0, T: "PRESENCE_UPDATE", D: pretty})
 		}
