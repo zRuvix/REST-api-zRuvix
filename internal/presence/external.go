@@ -102,8 +102,28 @@ func SetExternalMusic(userID string, in ExternalMusicInput) (*PrettyPresence, *E
 		em.DurationMs = &d
 	}
 
+	// Infer track_id from YouTube URLs when missing. Done before the timestamp
+	// work below so the "is this still the same track?" check can use it.
+	if em.TrackID == "" && em.TrackURL != "" {
+		if id := youtubeTrackID(&em.TrackURL); id != nil {
+			em.TrackID = *id
+		}
+	}
+
+	// A refresh for a track we are already holding can reuse that report's
+	// timestamps.
+	prev := loadExternalMusic(userID)
+	var prevStart, prevEnd int64
+	var hasPrevStart, hasPrevEnd bool
+	if prev != nil {
+		prevStart, hasPrevStart = prev.Timestamps["start"]
+		prevEnd, hasPrevEnd = prev.Timestamps["end"]
+	}
+	sameTrackRefresh := sameExternalTrack(prev, em) && hasPrevStart && hasPrevEnd
+
 	// Prefer explicit timestamps; otherwise derive from progress + duration.
-	if in.Timestamps != nil {
+	switch {
+	case in.Timestamps != nil:
 		start, sok := in.Timestamps["start"]
 		end, eok := in.Timestamps["end"]
 		if sok && eok && end > start {
@@ -113,7 +133,22 @@ func SetExternalMusic(userID string, in ExternalMusicInput) (*PrettyPresence, *E
 				em.DurationMs = &d
 			}
 		}
-	} else if em.DurationMs != nil && *em.DurationMs > 0 {
+
+	case sameTrackRefresh && (em.IsPaused || in.ProgressMs == nil):
+		// This refresh carries no usable position: either playback is paused
+		// (progress is frozen) or the reporter simply omitted it. Deriving
+		// start = now - progress here would push start forward by the refresh
+		// interval every single time, and a start that moves far enough is
+		// indistinguishable from a genuine restart — which is how one paused or
+		// position-less track used to book a play on every refresh. Keep the
+		// start we already had for this track instead.
+		em.Timestamps = map[string]int64{"start": prevStart, "end": prevEnd}
+		if em.DurationMs == nil {
+			d := prevEnd - prevStart
+			em.DurationMs = &d
+		}
+
+	case em.DurationMs != nil && *em.DurationMs > 0:
 		progress := int64(0)
 		if in.ProgressMs != nil && *in.ProgressMs > 0 {
 			progress = *in.ProgressMs
@@ -124,13 +159,6 @@ func SetExternalMusic(userID string, in ExternalMusicInput) (*PrettyPresence, *E
 		start := now - progress
 		end := start + *em.DurationMs
 		em.Timestamps = map[string]int64{"start": start, "end": end}
-	}
-
-	// Infer track_id from YouTube URLs when missing.
-	if em.TrackID == "" && em.TrackURL != "" {
-		if id := youtubeTrackID(&em.TrackURL); id != nil {
-			em.TrackID = *id
-		}
 	}
 
 	if b, err := json.Marshal(em); err == nil {
@@ -156,6 +184,20 @@ func ClearExternalMusic(userID string) (*PrettyPresence, *Error) {
 
 	pretty := p.BuildPretty()
 	return &pretty, nil
+}
+
+// sameExternalTrack reports whether two external reports describe the same
+// track. Track ids decide it when both sides have one; otherwise fall back to
+// song + artist, since plenty of reporters send nothing else.
+func sameExternalTrack(a, b *ExternalMusic) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a.TrackID != "" && b.TrackID != "" {
+		return a.TrackID == b.TrackID
+	}
+	return strings.EqualFold(strings.TrimSpace(a.Song), strings.TrimSpace(b.Song)) &&
+		strings.EqualFold(strings.TrimSpace(a.Artist), strings.TrimSpace(b.Artist))
 }
 
 // loadExternalMusic reads a stored report from Redis (used on presence start).

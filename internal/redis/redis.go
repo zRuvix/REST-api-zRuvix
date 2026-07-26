@@ -147,6 +147,27 @@ func Publish(channel, message string) {
 	client.Publish(ctx, channel, message)
 }
 
+// Script is a Lua script executed server-side, giving callers a compare-and-set
+// primitive the individual commands above cannot express. Scripts are declared
+// once (at package init) and run via EVALSHA, falling back to EVAL on a cache
+// miss — go-redis handles that handshake.
+type Script struct{ s *goredis.Script }
+
+// NewScript prepares a Lua script. It does not touch the connection, so it is
+// safe to call from a package-level var before Connect runs.
+func NewScript(src string) *Script { return &Script{s: goredis.NewScript(src)} }
+
+// RunInt executes the script and returns its integer reply. Any error (Redis
+// unreachable, script failure, non-integer reply) yields 0, so callers that use
+// a script as a guard fail closed rather than acting on an unverified result.
+func (s *Script) RunInt(keys []string, args ...any) int64 {
+	v, err := s.s.Run(ctx, client, keys, args...).Int64()
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
 // LPush prepends a value to the list at key.
 func LPush(key, value string) {
 	client.LPush(ctx, key, value)
