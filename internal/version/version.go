@@ -4,7 +4,7 @@
 package version
 
 // Version is the current zRuvix release. Use semantic versioning.
-const Version = "1.7.0"
+const Version = "1.7.1"
 
 // Release is one entry in the changelog.
 type Release struct {
@@ -16,6 +16,18 @@ type Release struct {
 
 // Changelog lists releases newest-first.
 var Changelog = []Release{
+	{
+		Version: "1.7.1",
+		Date:    "2026-07-26",
+		Title:   "Top Tracks Accuracy Fix",
+		Changes: []string{
+			"Fixed songs with no track id never being counted at all — YouTube Music activities Discord sends without a track link, and external reports carrying only a song and artist, were missing from top-tracks, listening history and the daily counter entirely; they are now grouped by song + artist under a derived `track_key`",
+			"Fixed play counts being multiplied across nodes: the duplicate guard lived in each process's memory, so every node recorded the same play. It now settles atomically in Redis",
+			"Fixed a restart or deploy re-counting whatever each user was listening to at that moment",
+			"Fixed a paused or position-less external report booking a new play on every refresh — its start no longer drifts forward each time",
+			"top-tracks entries now always carry `track_key` (what the play was counted under); `track_id` stays null when the source never gave one",
+		},
+	},
 	{
 		Version: "1.7.0",
 		Date:    "2026-07-25",
